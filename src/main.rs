@@ -23,9 +23,43 @@ use bytes::Bytes;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::ffi::OsStr;
+use log::{Record, Level, Metadata, info, error, debug};
 
 #[cfg(unix)]
 const DEFAULT_TTY: &str = "/dev/ttyUSB0";
+
+struct ColourLogger {
+    debug: console::Style,
+    info: console::Style,
+    warn: console::Style,
+    error: console::Style,    
+}
+
+impl log::Log for ColourLogger {
+    fn enabled(&self, m: &Metadata) -> bool {
+        m.level() <= Level::Debug
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            match record.level() {
+                log::Level::Error => println!("{}", self.error.apply_to(format!("{}", record.args()))),
+                log::Level::Warn => println!("{}", self.warn.apply_to(format!("{}", record.args()))),
+                log::Level::Info => println!("{}", self.info.apply_to(format!("{}", record.args()))),
+                log::Level::Debug => println!("{}", self.debug.apply_to(format!("{}", record.args()))),
+                _ => unimplemented!(),
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+fn debug_print(s: String) {
+    if s.len() > 0 {
+        debug!("{}", s);
+    }
+}
 
 async fn load_section(section: &[u8], addr: u32, rom_cmd: &mut K210RomCmd) -> Result<(), Error> {
     let progress_bar = ProgressBar::new(section.len() as u64)
@@ -50,9 +84,12 @@ async fn do_load_image<T: AsRef<str> + ?Sized> (tty_path: &T, file: &T) -> Resul
                             .unwrap_or(OsStr::new("Unknown"))
                             .to_string_lossy();
     match rom_cmd.greet().await  {
-        Ok(()) => println!("Handshake with K210 succeeded"),
+        Ok(x) => {
+                    info!("Handshake with K210 succeeded");
+                    debug_print(x);
+        },
         Err(x) => {
-            println!("Handshake with K210 failed: {}", x);
+            error!("Handshake with K210 failed: {}", x);
             return Err(x);
         }
     }
@@ -64,7 +101,7 @@ async fn do_load_image<T: AsRef<str> + ?Sized> (tty_path: &T, file: &T) -> Resul
     if let Ok(elf) = Elf::from_bytes(&image) {
         if let Elf::Elf64(elf64) = elf {
             if elf64.header().machine() == ElfMachine::RISC_V {
-                println!("Loading {}", file_name);
+                info!("Loading {}", file_name);
                 for p in elf64.program_header_iter() {                   
                     if p.ph.ph_type() == ProgramType::LOAD {
                         let address = p.ph.paddr() as u32;                        
@@ -72,7 +109,7 @@ async fn do_load_image<T: AsRef<str> + ?Sized> (tty_path: &T, file: &T) -> Resul
                         let size = p.ph.filesz() as usize;
                         let section = &image[offset..offset + size];
 
-                        println!("Loading section @ {:x}", address);
+                        info!("Loading section @ {:x}", address);
                         load_section(section, address, &mut rom_cmd).await?;                    
                     }               
                 }
@@ -84,7 +121,7 @@ async fn do_load_image<T: AsRef<str> + ?Sized> (tty_path: &T, file: &T) -> Resul
     } else {
         let address: u32 = 0x80000000;
 
-        println!("Loading image {} @ {:x}", file_name, address);
+        info!("Loading image {} @ {:x}", file_name, address);
         load_section(&image, address, &mut rom_cmd).await?;        
         rom_cmd.memory_boot(address).await?;
     }
@@ -97,15 +134,20 @@ async fn do_flash_image<T: AsRef<str> + ?Sized> (tty_path: &T, file: &T) -> Resu
     let mut rom_cmd = K210RomCmd::from_path(&tty_path.as_ref())?;
 
     match rom_cmd.greet().await  {
-        Ok(()) => println!("Handshake with K210 succeeded"),
+        Ok(x) => {
+            info!("Handshake with K210 succeeded");
+            if x.len() > 0 {
+                debug!("{}", x);
+            }
+        },
         Err(x) => {
-            println!("Handshake with K210 failed: {}", x);
+            error!("Handshake with K210 failed: {}", x);
             return Err(x);
         }
     }
     
     let address: u32 = 0x80000000;
-    println!("Loading ISP loader @ {:x}", address);
+    info!("Loading ISP loader @ {:x}", address);
     load_section(isp_image, address, &mut rom_cmd).await?;
     rom_cmd.memory_boot(address).await?;
 
@@ -123,15 +165,18 @@ async fn do_flash_image<T: AsRef<str> + ?Sized> (tty_path: &T, file: &T) -> Resu
     let sha256_value = sha256.result();
     let final_image = [vec![0], image_size.to_le_bytes().to_vec(), image, sha256_value.to_vec()].concat();
 
-    println!("Waiting for ISP loader to start");
+    info!("Waiting for ISP loader to start");
     time::delay_for(time::Duration::from_millis(500)).await;
-    let _ = rom_cmd.flash_greet().await?;
-    let _ = rom_cmd.select_flash_type(k210_rom_cmd::K210FlashType::External).await?;
+    let result = rom_cmd.flash_greet().await?;
+    debug_print(result);
+    
+    let result = rom_cmd.select_flash_type(k210_rom_cmd::K210FlashType::External).await?;
+    debug_print(result);
 
     let file_name = Path::new(file.as_ref()).file_name()
                                 .unwrap_or(OsStr::new("Unknown"))
                                 .to_string_lossy();
-    println!("Flashing {}", file_name);
+    info!("Flashing {}", file_name);
     let progress_bar = ProgressBar::new(image_size as u64)
                                 .with_style(ProgressStyle::default_bar()
                                 .template("{wide_bar} {pos}/{len} {msg}"));
@@ -229,7 +274,7 @@ async fn do_terminal<T: AsRef<str> + ?Sized> (tty_path: &T) -> Result<(), Error>
     let bytes_codec = tokio_util::codec::BytesCodec::new();
     let mut reader = bytes_codec.framed(port);
 
-    println!("Entering terminal mode. Press ctrl-] to quit.");
+    info!("Entering terminal mode. Press ctrl-] to quit.");
 
     let mut stdout = tokio::io::stdout();
     let stdout_rawfd = stdout.as_raw_fd();
@@ -279,11 +324,16 @@ async fn do_terminal<T: AsRef<str> + ?Sized> (tty_path: &T) -> Result<(), Error>
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-
-    let green = console::Style::new().green().for_stdout();
     
+    let logger =  ColourLogger {
+        debug: console::Style::new().magenta(),
+        info: console::Style::new().green(),
+        warn: console::Style::new().yellow(),
+        error: console::Style::new().red(),
+    };
     
-    println!("{}", green.apply_to("Hello World!"));
+    log::set_boxed_logger(Box::new(logger)).map(|()| log::set_max_level(log::LevelFilter::Debug))
+                .or(Err(Error::new(ErrorKind::Other,"set logger failed")))?;
 
     let cli_args = App::new("k210-flash-rs")
         .version("0.1")

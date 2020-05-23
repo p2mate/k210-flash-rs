@@ -1,4 +1,4 @@
-use super::slipcodec::{Decoder, Error, ErrorKind, SlipCodec};
+use super::slipcodec::{Decoder, Error, ErrorKind, SlipCodec, SlipDecoded};
 use crc_any::CRC;
 use futures::{sink::SinkExt, stream::StreamExt};
 use std::path::Path;
@@ -114,7 +114,7 @@ impl K210RomCmd {
         &mut self,
         b: &T,
         delay: time::Duration,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<SlipDecoded, Error> {
 
         self.send_cmd(b).await?;
 
@@ -126,14 +126,14 @@ impl K210RomCmd {
         if let Ok(result) = time::timeout(delay, reader.next()).await {
             match result {
                 Some(x) => x,
-                None => Ok(vec![]),
+                None => Ok(SlipDecoded::new()),
             }
         } else {
             Err(Error::new(ErrorKind::TimedOut, "Timeout"))
         }
     }
 
-    async fn do_greeting(&mut self, cmd: u8, do_isp: bool) -> Result<(), Error> {
+    async fn do_greeting(&mut self, cmd: u8, do_isp: bool) -> Result<String, Error> {
         for _ in 0 as u32..15 {
             if do_isp {
                 self.target_isp_mode().await;
@@ -146,8 +146,8 @@ impl K210RomCmd {
                 .await;
             match result {
                 Ok(x) => {
-                    if let Ok(()) = cmd_ok(cmd, &x) {
-                        return Ok(());
+                    if let Ok(()) = cmd_ok(cmd, &x.get_item()) {
+                        return Ok(x.get_debug_info());
                     }
                 }
                 _ => {}
@@ -156,15 +156,15 @@ impl K210RomCmd {
         Err(Error::new(ErrorKind::TimedOut, "Timeout"))
     }
 
-    pub async fn greet(&mut self) -> Result<(), Error> {
+    pub async fn greet(&mut self) -> Result<String, Error> {
         self.do_greeting(0xc2, true).await      
     }
 
-    pub async fn flash_greet(&mut self) -> Result<(), Error> {
+    pub async fn flash_greet(&mut self) -> Result<String, Error> {
         self.do_greeting(0xd2, false).await
     }
 
-    pub async fn memory_write<T: AsRef<[u8]>>(&mut self, address: u32, d: &T) -> Result<(), Error> {
+    pub async fn memory_write<T: AsRef<[u8]>>(&mut self, address: u32, d: &T) -> Result<String, Error> {
         let data = d.as_ref().to_vec();
         let result = self
             .send_cmd_with_reply(
@@ -172,17 +172,17 @@ impl K210RomCmd {
                 time::Duration::from_millis(500),
             )
             .await?;
-        cmd_ok(0xc3, &result)
+        cmd_ok(0xc3, &result.get_item()).map(|()| result.get_debug_info())
     }
 
-    pub async fn flash_write<T: AsRef<[u8]>>(&mut self, address: u32, d: &T) -> Result<(), Error> {
+    pub async fn flash_write<T: AsRef<[u8]>>(&mut self, address: u32, d: &T) -> Result<String, Error> {
         let mut data = d.as_ref().to_vec().clone();
         data.resize(16 * 4096, 0);        
         let cmd = encode_cmd(0xd4, [address, data.len() as u32], &data)?;        
         let result = self
             .send_cmd_with_reply(&cmd, time::Duration::from_secs(3))
             .await?;
-        cmd_ok(0xd4, &result)       
+        cmd_ok(0xd4, &result.get_item()).map(|()| result.get_debug_info())
     }
 
     pub async fn memory_boot(&mut self, address: u32) -> Result<(), Error> {
@@ -190,14 +190,14 @@ impl K210RomCmd {
             .await
     }
 
-    pub async fn select_flash_type(&mut self, ftype: K210FlashType) -> Result<(), Error> {
+    pub async fn select_flash_type(&mut self, ftype: K210FlashType) -> Result<String, Error> {
         let result = self
             .send_cmd_with_reply(
                 &encode_cmd(0xd7, [ftype as u32, 0], &Vec::<u8>::new())?,
                 time::Duration::from_millis(500),
             )
             .await?;
-        cmd_ok(0xd7, &result)
+        cmd_ok(0xd7, &result.get_item()).map(|()| result.get_debug_info())
     }
 }
 

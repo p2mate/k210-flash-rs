@@ -1,29 +1,48 @@
 pub use tokio_util::codec::{Decoder, Encoder};
 pub use std::io::{Error, ErrorKind};
 pub struct SlipCodec;
+pub struct SlipDecoded {
+    item: Vec<u8>,
+    debug_info: String,
+}
+
+impl SlipDecoded {
+    pub fn get_item(&self) -> Vec<u8> {
+        self.item.clone()
+    }
+
+    pub fn get_debug_info(&self) -> String {
+        self.debug_info.clone()
+    }
+
+    pub fn new() -> Self {
+        SlipDecoded { item: vec![], debug_info: String::new()}
+    }
+}
 
 use bytes::BytesMut;
 
 impl Decoder for SlipCodec {
-    type Item = Vec<u8>;
+    type Item = SlipDecoded;
     type Error = Error;
 
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {        
-        if src[0] == b'[' {
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {              
+        let debug_str = if src[0] == b'[' {
             if let Some(pos) = src[1..].into_iter().position(|b| *b == 0xc0) {
-                dbg!(src.split_to(pos + 1));
+                String::from_utf8_lossy(&src.split_to(pos + 1)).to_string()
             } else {
                 return Ok(None);
             }
-        }
+        } else {
+            String::new()
+        };
 
         if src.len() < 2 {
             return Ok(None);
         }
 
-        if src[0] != 0xc0 {
-            dbg!(src);
-            return Err(Error::new(ErrorKind::Other, "Invalid byte"));
+        if src[0] != 0xc0 {            
+            return Err(Error::new(ErrorKind::Other, format!("Invalid bytes {:?}", src.to_vec())));
         }
 
         if let Some(pos) = src[1..].into_iter().position(|b| *b == 0xc0) {            
@@ -52,7 +71,7 @@ impl Decoder for SlipCodec {
                     x => result.push(x),
                 }
             }
-            return Ok(Some(result));
+            return Ok(Some(SlipDecoded { item: result, debug_info: debug_str }));
         }                
         Ok(None)
     }
