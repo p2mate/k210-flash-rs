@@ -1,0 +1,45 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'k210-flash-rs'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=k210-flash-rs",
+                    "--package=k210-flash-rs"
+                ],
+                "filter": {
+                    "name": "k210-flash-rs",
+                    "kind": "bin"
+                }
+            },
+            "args": [ "-s", "/dev/ttyUSB1", "-t" ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'k210-flash-rs'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=k210-flash-rs",
+                    "--package=k210-flash-rs"
+                ],
+                "filter": {
+                    "name": "k210-flash-rs",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
