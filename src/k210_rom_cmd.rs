@@ -68,8 +68,7 @@ fn cmd_ok<T: AsRef<[u8]>>(cmd: u8, r: &T) -> Result<(), Error> {
     if response.len() == 2 && response[0] == cmd && response[1] == 0xe0 {
         Ok(())
     } else {
-        dbg!(response);
-        Err(Error::new(ErrorKind::Other, "Invalid response"))
+        Err(Error::new(ErrorKind::Other, format!("Invalid response: {:?}", response)))
     }
 }
 
