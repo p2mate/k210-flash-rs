@@ -26,7 +26,8 @@ pub struct K210RomCmd {
 }
 
 pub enum K210FlashType {
-    OnChip = 0,
+    #[allow(dead_code)]
+    OnChip = 0, // Unused but defined for documentation purposes
     External = 1,
 }
 

@@ -13,11 +13,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-extern crate clap;
-extern crate elf_rs;
-extern crate nix;
-extern crate pipefile;
-extern crate libc;
 
 mod k210_rom_cmd;
 mod slipcodec;
